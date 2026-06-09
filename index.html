@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Mi Armario — CRM personal de ropa. Gestiona tus prendas, outfits diarios y ciclos de lavado." />
+    <title>Mi Armario</title>
+
+    <!-- Tabler Icons -->
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.19.0/dist/tabler-icons.min.css"
+    />
+
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,300&family=DM+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+
+    <link rel="stylesheet" href="style.css" />
+  </head>
+
+  <body>
+    <!-- ───────────── SIDEBAR ───────────── -->
+    <aside class="sidebar" role="navigation" aria-label="Navegación principal">
+      <div class="sidebar__brand">
+        <i class="ti ti-hanger" aria-hidden="true"></i>
+        <span>Mi Armario</span>
+      </div>
+
+      <nav class="sidebar__nav">
+        <button class="nav-item active" data-view="dashboard" aria-current="page">
+          <i class="ti ti-layout-dashboard" aria-hidden="true"></i>
+          <span>Dashboard</span>
+        </button>
+        <button class="nav-item" data-view="prendas">
+          <i class="ti ti-shirt" aria-hidden="true"></i>
+          <span>Prendas</span>
+        </button>
+        <button class="nav-item" data-view="outfits">
+          <i class="ti ti-calendar-event" aria-hidden="true"></i>
+          <span>Outfits</span>
+        </button>
+        <button class="nav-item" data-view="lavanderia">
+          <i class="ti ti-wash" aria-hidden="true"></i>
+          <span>Lavandería</span>
+          <span class="nav-badge" id="nav-badge-lavanderia" aria-label="prendas sucias">0</span>
+        </button>
+        <button class="nav-item" data-view="historial">
+          <i class="ti ti-history" aria-hidden="true"></i>
+          <span>Historial</span>
+        </button>
+      </nav>
+
+      <div class="sidebar__footer">
+        <button class="btn btn--ghost btn--sm" id="btn-export" title="Exportar datos">
+          <i class="ti ti-download" aria-hidden="true"></i>
+          <span>Exportar</span>
+        </button>
+        <button class="btn btn--ghost btn--sm" id="btn-import" title="Importar datos">
+          <i class="ti ti-upload" aria-hidden="true"></i>
+          <span>Importar</span>
+        </button>
+        <input type="file" id="file-import" accept=".json" hidden />
+      </div>
+    </aside>
+
+    <!-- ───────────── MAIN CONTENT ───────────── -->
+    <main class="main" id="main-content">
+
+      <!-- ── VIEW: DASHBOARD ── -->
+      <section class="view active" id="view-dashboard" aria-label="Dashboard">
+        <header class="view__header">
+          <div>
+            <h1 class="view__title">Buenos días</h1>
+            <p class="view__subtitle" id="fecha-hoy"></p>
+          </div>
+          <button class="btn btn--primary" id="btn-nuevo-outfit">
+            <i class="ti ti-sparkles" aria-hidden="true"></i>
+            Outfit de hoy
+          </button>
+        </header>
+
+        <!-- Stats cards -->
+        <div class="stats-grid" role="region" aria-label="Resumen del armario">
+          <article class="stat-card stat-card--clean">
+            <div class="stat-card__icon"><i class="ti ti-check" aria-hidden="true"></i></div>
+            <div class="stat-card__body">
+              <span class="stat-card__value" id="stat-limpias">0</span>
+              <span class="stat-card__label">Limpias</span>
+            </div>
+          </article>
+          <article class="stat-card stat-card--using">
+            <div class="stat-card__icon"><i class="ti ti-user" aria-hidden="true"></i></div>
+            <div class="stat-card__body">
+              <span class="stat-card__value" id="stat-usando">0</span>
+              <span class="stat-card__label">Usando hoy</span>
+            </div>
+          </article>
+          <article class="stat-card stat-card--dirty">
+            <div class="stat-card__icon"><i class="ti ti-droplet" aria-hidden="true"></i></div>
+            <div class="stat-card__body">
+              <span class="stat-card__value" id="stat-sucias">0</span>
+              <span class="stat-card__label">Para lavar</span>
+            </div>
+          </article>
+          <article class="stat-card stat-card--total">
+            <div class="stat-card__icon"><i class="ti ti-archive" aria-hidden="true"></i></div>
+            <div class="stat-card__body">
+              <span class="stat-card__value" id="stat-total">0</span>
+              <span class="stat-card__label">Total prendas</span>
+            </div>
+          </article>
+        </div>
+
+        <!-- Cambio alert -->
+        <div class="alert alert--warning" id="alert-cambio" hidden role="alert">
+          <i class="ti ti-clock-hour-4" aria-hidden="true"></i>
+          <span>Es hora de cambiarte — confirma para pasar las prendas a sucias.</span>
+          <button class="btn btn--warning btn--sm" id="btn-confirmar-cambio">Confirmar cambio</button>
+        </div>
+
+        <!-- Outfit de hoy -->
+        <section class="card" aria-labelledby="outfit-hoy-title">
+          <div class="card__header">
+            <h2 class="card__title" id="outfit-hoy-title">
+              <i class="ti ti-shirt" aria-hidden="true"></i>
+              Outfit de hoy
+            </h2>
+            <span class="hora-cambio-chip" id="hora-cambio-chip" hidden></span>
+          </div>
+          <div class="card__body">
+            <div class="outfit-pieces" id="outfit-hoy-piezas" role="list" aria-label="Prendas del outfit de hoy"></div>
+            <div class="outfit-empty" id="outfit-hoy-empty">
+              <i class="ti ti-mood-empty" aria-hidden="true"></i>
+              <p>Sin outfit definido. Presiona <strong>Outfit de hoy</strong> para comenzar.</p>
+            </div>
+          </div>
+        </section>
+
+        <!-- Próximo outfit -->
+        <section class="card" aria-labelledby="outfit-manana-title">
+          <div class="card__header">
+            <h2 class="card__title" id="outfit-manana-title">
+              <i class="ti ti-calendar-plus" aria-hidden="true"></i>
+              Outfit de mañana
+            </h2>
+            <button class="btn btn--ghost btn--sm" id="btn-planificar-manana">
+              <i class="ti ti-edit" aria-hidden="true"></i>
+              Planificar
+            </button>
+          </div>
+          <div class="card__body">
+            <div class="outfit-pieces" id="outfit-manana-piezas" role="list"></div>
+            <div class="outfit-empty" id="outfit-manana-empty">
+              <i class="ti ti-calendar" aria-hidden="true"></i>
+              <p>Planifica el outfit de mañana por adelantado.</p>
+            </div>
+          </div>
+        </section>
+      </section>
+
+      <!-- ── VIEW: PRENDAS ── -->
+      <section class="view" id="view-prendas" aria-label="Gestión de prendas" hidden>
+        <header class="view__header">
+          <div>
+            <h1 class="view__title">Prendas</h1>
+            <p class="view__subtitle" id="prendas-count"></p>
+          </div>
+          <button class="btn btn--primary" id="btn-agregar-prenda">
+            <i class="ti ti-plus" aria-hidden="true"></i>
+            Nueva prenda
+          </button>
+        </header>
+
+        <!-- Filters -->
+        <div class="filter-bar" role="group" aria-label="Filtrar prendas">
+          <button class="filter-chip active" data-filter="todas">Todas</button>
+          <button class="filter-chip" data-filter="limpia">Limpias</button>
+          <button class="filter-chip" data-filter="usando">En uso</button>
+          <button class="filter-chip" data-filter="sucia">Sucias</button>
+          <div class="filter-bar__sep" aria-hidden="true"></div>
+          <button class="filter-chip" data-filter-cat="tops">👕 Tops</button>
+          <button class="filter-chip" data-filter-cat="pantalon">👖 Pantalón</button>
+          <button class="filter-chip" data-filter-cat="short">🩳 Short</button>
+          <button class="filter-chip" data-filter-cat="vestido">👗 Vestido</button>
+          <button class="filter-chip" data-filter-cat="zapatos">👟 Zapatos</button>
+          <button class="filter-chip" data-filter-cat="abrigo">🧥 Abrigo</button>
+          <button class="filter-chip" data-filter-cat="accesorio">🧢 Accesorio</button>
+        </div>
+
+        <!-- Search -->
+        <div class="search-bar">
+          <i class="ti ti-search" aria-hidden="true"></i>
+          <input
+            type="search"
+            id="prendas-search"
+            placeholder="Buscar prenda..."
+            aria-label="Buscar prendas"
+          />
+        </div>
+
+        <!-- Grid -->
+        <div class="prendas-grid" id="prendas-grid" role="list" aria-live="polite"></div>
+      </section>
+
+      <!-- ── VIEW: OUTFITS ── -->
+      <section class="view" id="view-outfits" aria-label="Planificador de outfits" hidden>
+        <header class="view__header">
+          <div>
+            <h1 class="view__title">Outfits</h1>
+            <p class="view__subtitle">Planifica tu semana</p>
+          </div>
+        </header>
+        <div id="outfits-semana"></div>
+      </section>
+
+      <!-- ── VIEW: LAVANDERÍA ── -->
+      <section class="view" id="view-lavanderia" aria-label="Gestión de lavandería" hidden>
+        <header class="view__header">
+          <div>
+            <h1 class="view__title">Lavandería</h1>
+            <p class="view__subtitle" id="lavanderia-count"></p>
+          </div>
+          <button class="btn btn--success" id="btn-lavar-todas">
+            <i class="ti ti-wash" aria-hidden="true"></i>
+            Lavar todas
+          </button>
+        </header>
+        <div class="prendas-grid" id="lavanderia-grid" role="list"></div>
+      </section>
+
+      <!-- ── VIEW: HISTORIAL ── -->
+      <section class="view" id="view-historial" aria-label="Historial de outfits" hidden>
+        <header class="view__header">
+          <div>
+            <h1 class="view__title">Historial</h1>
+            <p class="view__subtitle">Outfits anteriores</p>
+          </div>
+        </header>
+        <div class="historial-list" id="historial-list"></div>
+      </section>
+
+    </main>
+
+    <!-- ───────────── MODALS ───────────── -->
+
+    <!-- Modal: Nueva prenda -->
+    <div class="modal-overlay" id="modal-prenda" role="dialog" aria-modal="true" aria-labelledby="modal-prenda-title" hidden>
+      <div class="modal">
+        <div class="modal__header">
+          <h2 class="modal__title" id="modal-prenda-title">Nueva prenda</h2>
+          <button class="modal__close" aria-label="Cerrar modal" data-close="modal-prenda">
+            <i class="ti ti-x" aria-hidden="true"></i>
+          </button>
+        </div>
+        <div class="modal__body">
+          <div class="form-group">
+            <label class="form-label" for="prenda-nombre">Nombre de la prenda *</label>
+            <input class="form-input" type="text" id="prenda-nombre" placeholder="ej. Camisa verde de rayas" autocomplete="off" />
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Categoría *</label>
+            <div class="cat-grid" id="cat-grid" role="group" aria-label="Categoría de prenda">
+              <button class="cat-btn selected" data-cat="tops" type="button">👕<span>Tops</span></button>
+              <button class="cat-btn" data-cat="pantalon" type="button">👖<span>Pantalón</span></button>
+              <button class="cat-btn" data-cat="short" type="button">🩳<span>Short</span></button>
+              <button class="cat-btn" data-cat="vestido" type="button">👗<span>Vestido</span></button>
+              <button class="cat-btn" data-cat="zapatos" type="button">👟<span>Zapatos</span></button>
+              <button class="cat-btn" data-cat="abrigo" type="button">🧥<span>Abrigo</span></button>
+              <button class="cat-btn" data-cat="accesorio" type="button">🧢<span>Accesorio</span></button>
+              <button class="cat-btn" data-cat="ropa-interior" type="button">🩲<span>Interior</span></button>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label" for="prenda-color">Color</label>
+              <input class="form-input" type="text" id="prenda-color" placeholder="ej. Verde oliva" autocomplete="off" />
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="prenda-marca">Marca (opcional)</label>
+              <input class="form-input" type="text" id="prenda-marca" placeholder="ej. Zara" autocomplete="off" />
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="prenda-notas">Notas</label>
+            <textarea class="form-input form-textarea" id="prenda-notas" placeholder="Instrucciones de lavado, combinaciones, etc." rows="2"></textarea>
+          </div>
+        </div>
+        <div class="modal__footer">
+          <button class="btn btn--ghost" data-close="modal-prenda">Cancelar</button>
+          <button class="btn btn--primary" id="btn-guardar-prenda">Guardar prenda</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal: Selector de outfit -->
+    <div class="modal-overlay" id="modal-selector" role="dialog" aria-modal="true" aria-labelledby="modal-selector-title" hidden>
+      <div class="modal modal--wide">
+        <div class="modal__header">
+          <h2 class="modal__title" id="modal-selector-title">Seleccionar prendas</h2>
+          <button class="modal__close" aria-label="Cerrar" data-close="modal-selector">
+            <i class="ti ti-x" aria-hidden="true"></i>
+          </button>
+        </div>
+        <div class="modal__body">
+          <div class="selector-search">
+            <i class="ti ti-search" aria-hidden="true"></i>
+            <input type="search" id="selector-search-input" placeholder="Buscar..." aria-label="Buscar prendas" />
+          </div>
+          <div class="selector-cats" id="selector-cats" role="group" aria-label="Filtrar por categoría">
+            <button class="filter-chip active" data-selector-cat="todas">Todas</button>
+            <button class="filter-chip" data-selector-cat="tops">👕 Tops</button>
+            <button class="filter-chip" data-selector-cat="pantalon">👖 Pantalón</button>
+            <button class="filter-chip" data-selector-cat="short">🩳 Short</button>
+            <button class="filter-chip" data-selector-cat="vestido">👗 Vestido</button>
+            <button class="filter-chip" data-selector-cat="zapatos">👟 Zapatos</button>
+            <button class="filter-chip" data-selector-cat="abrigo">🧥 Abrigo</button>
+            <button class="filter-chip" data-selector-cat="accesorio">🧢 Accesorio</button>
+          </div>
+          <div class="selector-list" id="selector-list" role="list" aria-label="Prendas disponibles"></div>
+        </div>
+        <div class="modal__footer">
+          <span class="selector-count" id="selector-count" aria-live="polite">0 seleccionadas</span>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn--ghost" data-close="modal-selector">Cancelar</button>
+            <button class="btn btn--primary" id="btn-confirmar-selector">Confirmar</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal: Hora de cambio -->
+    <div class="modal-overlay" id="modal-hora" role="dialog" aria-modal="true" aria-labelledby="modal-hora-title" hidden>
+      <div class="modal modal--sm">
+        <div class="modal__header">
+          <h2 class="modal__title" id="modal-hora-title">Hora de cambio</h2>
+          <button class="modal__close" aria-label="Cerrar" data-close="modal-hora">
+            <i class="ti ti-x" aria-hidden="true"></i>
+          </button>
+        </div>
+        <div class="modal__body">
+          <p class="modal__description">¿A qué hora te cambias de ropa? Recibirás un aviso para pasar las prendas a "sucia".</p>
+          <div class="form-group">
+            <label class="form-label" for="hora-input">Hora</label>
+            <input class="form-input form-input--time" type="time" id="hora-input" value="18:00" />
+          </div>
+        </div>
+        <div class="modal__footer">
+          <button class="btn btn--ghost" data-close="modal-hora">Omitir</button>
+          <button class="btn btn--primary" id="btn-guardar-hora">Confirmar hora</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Toast container -->
+    <div class="toast-container" id="toast-container" aria-live="polite" aria-atomic="true"></div>
+
+    <script src="app.js"></script>
+  </body>
+</html>
