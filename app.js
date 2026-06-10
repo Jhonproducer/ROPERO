@@ -712,35 +712,221 @@ function lavarTodas() {
   toast(`${sucias.length} prenda${sucias.length !== 1 ? 's' : ''} lavada${sucias.length !== 1 ? 's' : ''}.`, 'success');
 }
 
-// ── EXPORT / IMPORT ──────────────────────────────────────────
-function exportData() {
-  const data = JSON.stringify(state, null, 2);
-  const blob = new Blob([data], { type: 'application/json' });
-  const url  = URL.createObjectURL(blob);
-  const a    = document.createElement('a');
-  a.href     = url;
-  a.download = `mi-armario-${new Date().toISOString().split('T')[0]}.json`;
+// ── EXPORT / IMPORT (Excel-friendly) ─────────────────────────
+
+/**
+ * Exporta todas las prendas como archivo .xlsx real usando SheetJS (CDN).
+ * Si SheetJS no está disponible, cae a CSV con BOM para que Excel lo abra bien.
+ */
+async function exportData() {
+  const fecha = new Date().toISOString().split('T')[0];
+
+  // Construir filas
+  const headers = ['Nombre', 'Categoría', 'Color', 'Marca', 'Estado', 'Usos', 'Notas', 'Agregada'];
+  const rows = state.prendas.map(p => [
+    p.nombre,
+    CAT_LABEL[p.categoria] || p.categoria,
+    p.color   || '',
+    p.marca   || '',
+    STATUS_LABEL[p.estado] || p.estado,
+    p.usos    || 0,
+    p.notas   || '',
+    p.createdAt ? p.createdAt.split('T')[0] : '',
+  ]);
+
+  // Intentar con SheetJS (xlsx) si está disponible en la página
+  if (typeof XLSX !== 'undefined') {
+    const wsData = [headers, ...rows];
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.aoa_to_sheet(wsData);
+
+    // Ancho de columnas
+    ws['!cols'] = [22, 12, 14, 14, 10, 6, 30, 12].map(w => ({ wch: w }));
+
+    // Hoja de historial
+    const histHeaders = ['Fecha', 'Prendas usadas'];
+    const histRows = state.historial.map(h => [
+      h.fecha,
+      h.prendas.map(id => {
+        const p = state.prendas.find(x => x.id === id);
+        return p ? p.nombre : '(eliminada)';
+      }).join(', '),
+    ]);
+    const wsHist = XLSX.utils.aoa_to_sheet([histHeaders, ...histRows]);
+    wsHist['!cols'] = [{ wch: 16 }, { wch: 60 }];
+
+    XLSX.utils.book_append_sheet(wb, ws,     'Prendas');
+    XLSX.utils.book_append_sheet(wb, wsHist, 'Historial');
+
+    XLSX.writeFile(wb, `mi-armario-${fecha}.xlsx`);
+    toast('¡Exportado como Excel (.xlsx)!', 'success');
+    return;
+  }
+
+  // Fallback: CSV con BOM para que Excel lo abra sin problemas de tildes
+  const BOM = '\uFEFF';
+  const escape = v => {
+    const s = String(v);
+    return s.includes(',') || s.includes('"') || s.includes('\n')
+      ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const lines = [headers, ...rows].map(r => r.map(escape).join(','));
+  const csv   = BOM + lines.join('\r\n');
+  const blob  = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url   = URL.createObjectURL(blob);
+  const a     = document.createElement('a');
+  a.href      = url;
+  a.download  = `mi-armario-${fecha}.csv`;
   a.click();
   URL.revokeObjectURL(url);
-  toast('Datos exportados.', 'success');
+  toast('Exportado como CSV — ábrelo con Excel.', 'success');
 }
 
+/**
+ * Importa desde:
+ *  - .xlsx / .xls  → usa SheetJS si está disponible
+ *  - .csv          → parser propio (soporta comas, punto y coma, comillas)
+ *  - .json         → formato interno (backup completo)
+ */
 function importData(file) {
   if (!file) return;
+
+  const ext = file.name.split('.').pop().toLowerCase();
+
+  if (ext === 'json') {
+    // Backup completo JSON
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const parsed = JSON.parse(e.target.result);
+        if (!Array.isArray(parsed.prendas)) throw new Error('Formato inválido');
+        state = { ...state, ...parsed };
+        saveState(); renderAll();
+        toast(`Importadas ${parsed.prendas.length} prendas desde backup.`, 'success');
+      } catch {
+        toast('El archivo JSON no tiene el formato correcto.', 'error');
+      }
+    };
+    reader.readAsText(file);
+    return;
+  }
+
+  if ((ext === 'xlsx' || ext === 'xls') && typeof XLSX !== 'undefined') {
+    // Excel via SheetJS
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const wb   = XLSX.read(e.target.result, { type: 'array' });
+        const ws   = wb.Sheets[wb.SheetNames[0]];
+        const data = XLSX.utils.sheet_to_json(ws, { defval: '' });
+        procesarFilasImportadas(data);
+      } catch {
+        toast('No se pudo leer el archivo Excel.', 'error');
+      }
+    };
+    reader.readAsArrayBuffer(file);
+    return;
+  }
+
+  // CSV — soporta separador coma o punto y coma, con o sin BOM
   const reader = new FileReader();
   reader.onload = (e) => {
     try {
-      const parsed = JSON.parse(e.target.result);
-      if (!parsed.prendas) throw new Error('Formato inválido');
-      state = { ...state, ...parsed };
-      saveState();
-      renderAll();
-      toast('Datos importados correctamente.', 'success');
-    } catch (err) {
-      toast('Error al importar: archivo inválido.', 'error');
+      let text = e.target.result.replace(/^\uFEFF/, ''); // quitar BOM
+      const sep = text.split('\n')[0].includes(';') ? ';' : ',';
+
+      const parseCSVLine = (line) => {
+        const result = [];
+        let cur = '', inQ = false;
+        for (let i = 0; i < line.length; i++) {
+          const ch = line[i];
+          if (ch === '"') {
+            if (inQ && line[i + 1] === '"') { cur += '"'; i++; }
+            else inQ = !inQ;
+          } else if (ch === sep && !inQ) {
+            result.push(cur.trim()); cur = '';
+          } else {
+            cur += ch;
+          }
+        }
+        result.push(cur.trim());
+        return result;
+      };
+
+      const lines = text.split(/\r?\n/).filter(l => l.trim());
+      const headers = parseCSVLine(lines[0]).map(h => h.toLowerCase().trim());
+      const data = lines.slice(1).map(line => {
+        const vals = parseCSVLine(line);
+        const obj = {};
+        headers.forEach((h, i) => { obj[h] = vals[i] || ''; });
+        return obj;
+      });
+
+      procesarFilasImportadas(data);
+    } catch {
+      toast('No se pudo leer el CSV. Asegúrate de que sea el archivo exportado.', 'error');
     }
   };
-  reader.readAsText(file);
+  reader.readAsText(file, 'UTF-8');
+}
+
+/**
+ * Convierte filas (desde Excel o CSV) en prendas del estado.
+ * Acepta los encabezados en español que genera exportData().
+ */
+function procesarFilasImportadas(rows) {
+  const CAT_REVERSE = Object.fromEntries(
+    Object.entries(CAT_LABEL).map(([k, v]) => [v.toLowerCase(), k])
+  );
+  const ESTADO_REVERSE = { 'limpia': 'limpia', 'usando': 'usando', 'sucia': 'sucia' };
+
+  // Normalizar claves: acepta "Nombre", "nombre", "NOMBRE"
+  const norm = (obj, keys) => {
+    for (const k of keys) {
+      for (const ok of Object.keys(obj)) {
+        if (ok.toLowerCase().replace(/\s/g,'') === k.toLowerCase().replace(/\s/g,'')) return obj[ok];
+      }
+    }
+    return '';
+  };
+
+  let importadas = 0, omitidas = 0;
+
+  rows.forEach(row => {
+    const nombre = norm(row, ['nombre', 'name']).trim();
+    if (!nombre) { omitidas++; return; }
+
+    // ¿Ya existe? → actualizar
+    const existe = state.prendas.find(p => p.nombre.toLowerCase() === nombre.toLowerCase());
+    const catRaw = norm(row, ['categoría','categoria','category']).toLowerCase();
+    const cat    = CAT_REVERSE[catRaw] || 'tops';
+    const estRaw = norm(row, ['estado','status']).toLowerCase();
+    const estado = ESTADO_REVERSE[estRaw] || 'limpia';
+
+    if (existe) {
+      existe.color  = norm(row, ['color'])          || existe.color;
+      existe.marca  = norm(row, ['marca','brand'])   || existe.marca;
+      existe.notas  = norm(row, ['notas','notes'])   || existe.notas;
+      existe.estado = estado;
+    } else {
+      state.prendas.push({
+        id:        uid(),
+        nombre,
+        categoria: cat,
+        color:     norm(row, ['color'])        || '',
+        marca:     norm(row, ['marca','brand']) || '',
+        notas:     norm(row, ['notas','notes']) || '',
+        estado,
+        usos:      parseInt(norm(row, ['usos','uses'])) || 0,
+        createdAt: new Date().toISOString(),
+      });
+      importadas++;
+    }
+  });
+
+  saveState();
+  renderAll();
+  toast(`✓ ${importadas} prendas importadas${omitidas ? `, ${omitidas} omitidas` : ''}.`, 'success');
 }
 
 // ── EVENT BINDING ────────────────────────────────────────────
