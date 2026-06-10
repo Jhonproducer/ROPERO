@@ -64,7 +64,7 @@
           <i class="ti ti-upload" aria-hidden="true"></i>
           <span>Importar</span>
         </button>
-        <input type="file" id="file-import" accept=".json" hidden />
+        <input type="file" id="file-import" accept=".xlsx,.xls,.csv,.json" hidden />
       </div>
     </aside>
 
@@ -362,6 +362,8 @@
     <!-- Toast container -->
     <div class="toast-container" id="toast-container" aria-live="polite" aria-atomic="true"></div>
 
+        <!-- SheetJS: leer y escribir Excel .xlsx -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <script src="app.js"></script>
   </body>
 </html>
