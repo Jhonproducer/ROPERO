@@ -17,7 +17,7 @@
         <button class="nav-item active" data-view="dashboard"><i class="ti ti-layout-dashboard"></i><span>Dashboard</span></button>
         <button class="nav-item" data-view="prendas"><i class="ti ti-shirt"></i><span>Prendas</span></button>
         <button class="nav-item" data-view="outfits"><i class="ti ti-calendar-event"></i><span>Outfits</span></button>
-        <button class="nav-item" data-view="lavanderia"><i class="ti ti-wash"></i><span>Lavandería</span><span class="nav-badge" id="nav-badge-lavanderia">0</span></button>
+        <button class="nav-item" data-view="lavanderia"><i class="ti ti-wash"></i><span>Lavanderia</span><span class="nav-badge" id="nav-badge-lavanderia" style="display:none">0</span></button>
         <button class="nav-item" data-view="historial"><i class="ti ti-history"></i><span>Historial</span></button>
       </nav>
       <div class="sidebar__footer">
@@ -28,23 +28,42 @@
     </aside>
 
     <main class="main">
+
       <!-- DASHBOARD -->
       <section class="view active" id="view-dashboard">
         <header class="view__header">
           <div><h1 class="view__title" id="saludo-title">Buenos dias</h1><p class="view__subtitle" id="fecha-hoy"></p></div>
-          <button class="btn btn--primary" id="btn-nuevo-outfit"><i class="ti ti-sparkles"></i>Outfit de hoy</button>
         </header>
+
         <div class="stats-grid">
           <article class="stat-card stat-card--clean"><div class="stat-card__icon"><i class="ti ti-check"></i></div><div class="stat-card__body"><span class="stat-card__value" id="stat-limpias">0</span><span class="stat-card__label">Limpias</span></div></article>
           <article class="stat-card stat-card--using"><div class="stat-card__icon"><i class="ti ti-user"></i></div><div class="stat-card__body"><span class="stat-card__value" id="stat-usando">0</span><span class="stat-card__label">Usando hoy</span></div></article>
           <article class="stat-card stat-card--dirty"><div class="stat-card__icon"><i class="ti ti-droplet"></i></div><div class="stat-card__body"><span class="stat-card__value" id="stat-sucias">0</span><span class="stat-card__label">Para lavar</span></div></article>
           <article class="stat-card stat-card--total"><div class="stat-card__icon"><i class="ti ti-archive"></i></div><div class="stat-card__body"><span class="stat-card__value" id="stat-total">0</span><span class="stat-card__label">Total</span></div></article>
         </div>
+
+        <!-- Alertas de stock -->
+        <div id="alertas-stock" hidden></div>
+
+        <!-- Alerta hora cambio -->
         <div class="alert alert--warning" id="alert-cambio" hidden>
           <i class="ti ti-clock-hour-4"></i>
           <span>Es hora de cambiarte, confirma para pasar las prendas a sucias.</span>
           <button class="btn btn--warning btn--sm" id="btn-confirmar-cambio">Confirmar cambio</button>
         </div>
+
+        <!-- Botones de outfit -->
+        <div class="outfit-actions">
+          <button class="btn btn--ia" id="btn-ia-outfit">
+            <i class="ti ti-sparkles"></i>
+            Sugerir outfit con IA
+          </button>
+          <button class="btn btn--ghost" id="btn-manual-outfit">
+            <i class="ti ti-list-check"></i>
+            Elegir manualmente
+          </button>
+        </div>
+
         <section class="card">
           <div class="card__header">
             <h2 class="card__title"><i class="ti ti-shirt"></i>Outfit de hoy</h2>
@@ -52,9 +71,10 @@
           </div>
           <div class="card__body">
             <div class="outfit-pieces" id="outfit-hoy-piezas"></div>
-            <div class="outfit-empty" id="outfit-hoy-empty"><i class="ti ti-mood-empty"></i><p>Sin outfit. Presiona <strong>Outfit de hoy</strong> para comenzar.</p></div>
+            <div class="outfit-empty" id="outfit-hoy-empty"><i class="ti ti-mood-empty"></i><p>Sin outfit. Usa la IA o elige manualmente.</p></div>
           </div>
         </section>
+
         <section class="card">
           <div class="card__header">
             <h2 class="card__title"><i class="ti ti-calendar-plus"></i>Outfit de manana</h2>
@@ -73,7 +93,7 @@
           <div><h1 class="view__title">Prendas</h1><p class="view__subtitle" id="prendas-count"></p></div>
           <button class="btn btn--primary" id="btn-agregar-prenda"><i class="ti ti-plus"></i>Nueva prenda</button>
         </header>
-        <div class="filter-bar" id="filter-bar-prendas">
+        <div class="filter-bar">
           <button class="filter-chip active" data-filter="todas">Todas</button>
           <button class="filter-chip" data-filter="limpia">Limpias</button>
           <button class="filter-chip" data-filter="usando">En uso</button>
@@ -111,7 +131,51 @@
         <header class="view__header"><div><h1 class="view__title">Historial</h1><p class="view__subtitle">Outfits anteriores</p></div></header>
         <div class="historial-list" id="historial-list"></div>
       </section>
+
     </main>
+
+    <!-- MODAL: IA OUTFIT -->
+    <div class="modal-overlay" id="modal-ia" hidden>
+      <div class="modal modal--ia">
+        <div class="modal__header">
+          <h2 class="modal__title"><i class="ti ti-sparkles" style="color:var(--accent2)"></i> Sugerencia de la IA</h2>
+          <button class="modal__close" data-close="modal-ia"><i class="ti ti-x"></i></button>
+        </div>
+        <div class="modal__body">
+
+          <!-- Loading -->
+          <div id="ia-loading" class="ia-loading">
+            <div class="ia-spinner"></div>
+            <p>Analizando tu armario y el historial de uso...</p>
+          </div>
+
+          <!-- Resultado -->
+          <div id="ia-resultado" hidden>
+            <div id="ia-prendas" class="ia-prendas-list"></div>
+            <div class="ia-razon-box">
+              <i class="ti ti-bulb" style="color:var(--accent2);font-size:16px;flex-shrink:0"></i>
+              <p id="ia-razon" class="ia-razon"></p>
+            </div>
+            <div class="alert alert--warning" id="ia-alerta" hidden style="margin-top:12px;font-size:13px"></div>
+          </div>
+
+          <!-- Error -->
+          <div id="ia-error" hidden class="ia-error">
+            <i class="ti ti-wifi-off"></i>
+            <p>No se pudo conectar con la IA. Verifica tu conexion.</p>
+          </div>
+
+        </div>
+        <div class="modal__footer" id="ia-resultado" style="display:none"></div>
+        <div class="modal__footer">
+          <button class="btn btn--ghost btn--sm" id="btn-ia-reintentar" hidden><i class="ti ti-refresh"></i>Reintentar</button>
+          <button class="btn btn--ghost" id="btn-ia-manual">Elegir manual</button>
+          <button class="btn btn--primary" id="btn-usar-sugerencia" data-ids="[]">
+            <i class="ti ti-check"></i>Usar este outfit
+          </button>
+        </div>
+      </div>
+    </div>
 
     <!-- MODAL: NUEVA PRENDA -->
     <div class="modal-overlay" id="modal-prenda" hidden>
@@ -121,17 +185,14 @@
           <button class="modal__close" data-close="modal-prenda"><i class="ti ti-x"></i></button>
         </div>
         <div class="modal__body">
-          <div class="foto-zone" id="foto-zone">
-            <div class="foto-preview" id="foto-preview">
-              <i class="ti ti-camera"></i>
-              <span>Toca para agregar foto</span>
-            </div>
+          <div class="foto-zone">
+            <div class="foto-preview" id="foto-preview"><i class="ti ti-camera"></i><span>Toca para agregar foto</span></div>
             <input type="file" id="foto-input" accept="image/*" hidden />
             <button class="foto-remove" id="foto-remove" hidden><i class="ti ti-trash"></i>Quitar foto</button>
           </div>
           <div class="form-group">
             <label class="form-label">Nombre *</label>
-            <input class="form-input" type="text" id="prenda-nombre" placeholder="ej. Camisa verde de rayas" autocomplete="off" />
+            <input class="form-input" type="text" id="prenda-nombre" placeholder="ej. Franela blanca" autocomplete="off" />
           </div>
           <div class="form-group">
             <label class="form-label">Categoria *</label>
@@ -149,7 +210,7 @@
           <div class="form-row">
             <div class="form-group">
               <label class="form-label">Color</label>
-              <input class="form-input" type="text" id="prenda-color" placeholder="ej. Verde oliva" autocomplete="off" />
+              <input class="form-input" type="text" id="prenda-color" placeholder="ej. Blanca" autocomplete="off" />
             </div>
             <div class="form-group">
               <label class="form-label">Marca</label>
@@ -158,7 +219,7 @@
           </div>
           <div class="form-group">
             <label class="form-label">Notas</label>
-            <textarea class="form-input form-textarea" id="prenda-notas" placeholder="Combina con... lavar a 30 grados... etc." rows="2"></textarea>
+            <textarea class="form-input form-textarea" id="prenda-notas" placeholder="Combina con... lavar a 30..." rows="2"></textarea>
           </div>
         </div>
         <div class="modal__footer">
@@ -168,11 +229,11 @@
       </div>
     </div>
 
-    <!-- MODAL: SELECTOR -->
+    <!-- MODAL: SELECTOR MANUAL -->
     <div class="modal-overlay" id="modal-selector" hidden>
       <div class="modal modal--wide">
         <div class="modal__header">
-          <h2 class="modal__title" id="modal-selector-title">Seleccionar prendas</h2>
+          <h2 class="modal__title" id="modal-selector-title">Elegir prendas</h2>
           <button class="modal__close" data-close="modal-selector"><i class="ti ti-x"></i></button>
         </div>
         <div class="modal__body">
