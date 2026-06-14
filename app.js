@@ -65,9 +65,28 @@ function saludo() {
 // Cuantos dias hace que se uso una prenda (basado en historial)
 function diasDesdeUso(id) {
   for (let i=0; i<state.historial.length; i++) {
-    if (state.historial[i].prendas.includes(id)) return i; // 0=hoy,1=ayer,etc
+    if (state.historial[i].prendas.includes(id)) return i;
   }
   return 999; // nunca usada
+}
+
+// Puntaje de rotacion: mas alto = mas urgente ponerse
+// Factores: dias sin usar (principal) + penalizacion por uso reciente + bonus a las nunca usadas
+function calcularPuntaje(p) {
+  const dias  = diasDesdeUso(p.id);
+  const usos  = p.usos || 0;
+
+  // Penalizacion fuerte si se uso hace menos de 3 dias
+  if (dias === 0) return -100;
+  if (dias === 1) return -50;
+  if (dias === 2) return -10;
+
+  // Nunca usada: prioridad alta para estrenarla
+  if (dias === 999) return 80 + Math.max(0, 10 - usos);
+
+  // Normal: mas dias sin usar = mas puntaje
+  // Tambien favorece las menos usadas en empate
+  return dias * 10 + Math.max(0, 20 - usos);
 }
 
 // ── TOAST ────────────────────────────────────────────────────
@@ -153,124 +172,130 @@ function revisarAlertasStock() {
 }
 
 // ── IA: GENERAR OUTFIT SUGERIDO ──────────────────────────────
-async function generarOutfitIA() {
-  const limpias = state.prendas.filter(p=>p.estado==='limpia');
-  if(!limpias.length) {
-    toast('No hay prendas limpias disponibles.','error'); return;
-  }
+/* ── MOTOR DE ROTACION INTELIGENTE (sin IA externa) ──────────
+   Logica pura basada en historial de uso:
+   - Puntua cada prenda por dias sin usar (mas dias = mayor prioridad)
+   - Penaliza prendas usadas hace menos de 3 dias
+   - Penaliza prendas con muchos usos totales (para cuidar la ropa)
+   - Selecciona 1 top/franela + 1 short/pantalon
+   - Genera alertas de stock automaticamente
+─────────────────────────────────────────────────────────── */
+function calcularPuntaje(prenda) {
+  const dias = diasDesdeUso(prenda.id);
+  const usos  = prenda.usos || 0;
 
-  // Mostrar modal de carga
+  // Base: dias sin usar (mas es mejor)
+  let puntaje = dias === 999 ? 100 : dias;
+
+  // Penalizacion fuerte si se uso hace menos de 3 dias
+  if (dias < 3) puntaje -= 50;
+
+  // Penalizacion leve por uso total (evitar desgastar una sola prenda)
+  puntaje -= usos * 0.5;
+
+  // Pequeño factor aleatorio para que no sea siempre igual si hay empate
+  puntaje += Math.random() * 0.5;
+
+  return puntaje;
+}
+
+function generarOutfitIA() {
+  const limpias = state.prendas.filter(p => p.estado === 'limpia');
+  if (!limpias.length) { toast('No hay prendas limpias disponibles.','error'); return; }
+
+  // Abrir modal y mostrar resultado inmediato (sin loading, es instantaneo)
   el('modal-ia').removeAttribute('hidden');
-  el('ia-loading').removeAttribute('hidden');
-  el('ia-resultado').setAttribute('hidden','');
+  el('ia-loading').setAttribute('hidden','');
+  el('ia-resultado').removeAttribute('hidden');
   el('ia-error').setAttribute('hidden','');
 
-  // Construir contexto para la IA
-  const prendasInfo = limpias.map(p => ({
-    id: p.id,
-    nombre: p.nombre,
-    categoria: CAT_LABEL[p.categoria]||p.categoria,
-    color: p.color||'sin especificar',
-    diasDesdeUso: diasDesdeUso(p.id),
-    usosTotales: p.usos||0,
-  }));
+  // Categorias principales (franelas y shorts para uso en casa)
+  const TOPS   = ['tops', 'vestido'];
+  const BOTTOMS = ['short', 'pantalon'];
 
-  // Ultimos 14 dias de historial para contexto
-  const historialReciente = state.historial.slice(0,14).map((h,i)=>({
-    dia: i===0?'hoy':i===1?'ayer':`hace ${i} dias`,
-    prendas: h.prendas.map(id=>{
-      const p=state.prendas.find(x=>x.id===id);
-      return p?`${p.nombre} (${CAT_LABEL[p.categoria]||p.categoria})`:'prenda eliminada';
-    }),
-  }));
+  // Ordenar cada grupo por puntaje descendente
+  const tops    = limpias.filter(p => TOPS.includes(p.categoria))
+                         .sort((a,b) => calcularPuntaje(b) - calcularPuntaje(a));
+  const bottoms = limpias.filter(p => BOTTOMS.includes(p.categoria))
+                         .sort((a,b) => calcularPuntaje(b) - calcularPuntaje(a));
+  const otros   = limpias.filter(p => !TOPS.includes(p.categoria) && !BOTTOMS.includes(p.categoria))
+                         .sort((a,b) => calcularPuntaje(b) - calcularPuntaje(a));
 
-  const prompt = `Eres el asistente de armario personal de un hombre que usa ropa casual en casa (principalmente franelas/tops y shorts).
+  const seleccion = [];
+  const razones   = [];
+  const alertas   = [];
 
-PRENDAS LIMPIAS DISPONIBLES HOY:
-${JSON.stringify(prendasInfo, null, 2)}
-
-HISTORIAL DE USO RECIENTE (ultimos dias):
-${JSON.stringify(historialReciente, null, 2)}
-
-REGLAS DE ROTACION:
-1. Prioriza prendas con MAS dias sin usar (diasDesdeUso alto = llevan mas tiempo sin ponerse)
-2. NUNCA sugieras una prenda usada hace menos de 3 dias si hay alternativas
-3. Combina: 1 franela/top + 1 short/pantalon (el usuario es hombre, ropa casual en casa)
-4. Si solo hay una categoria disponible (ej solo franelas pero no shorts limpios), mencionalo
-5. Si una prenda lleva muchos usos totales, prefiere la que tiene menos para cuidar la ropa
-6. Sé breve y directo, tutea al usuario
-
-Responde UNICAMENTE con este JSON (sin markdown, sin explicacion extra):
-{
-  "outfit": ["id1", "id2"],
-  "razon": "frase corta y natural explicando por que estas prendas (max 2 lineas)",
-  "alerta": "null o texto de alerta si hay problema de stock (ej: quedan pocas franelas limpias)"
-}`;
-
-  try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 300,
-        messages: [{ role:'user', content: prompt }],
-      }),
-    });
-
-    const data = await res.json();
-    const text = data.content?.[0]?.text || '';
-
-    // Parsear JSON de respuesta
-    const clean = text.replace(/```json|```/g,'').trim();
-    const parsed = JSON.parse(clean);
-
-    // Validar que los IDs existen en prendas limpias
-    const idsValidos = (parsed.outfit||[]).filter(id => limpias.find(p=>p.id===id));
-
-    el('ia-loading').setAttribute('hidden','');
-    el('ia-resultado').removeAttribute('hidden');
-
-    // Mostrar prendas sugeridas
-    const cont = el('ia-prendas');
-    cont.innerHTML = '';
-    idsValidos.forEach(id => {
-      const p = state.prendas.find(x=>x.id===id);
-      if(!p) return;
-      const d = diasDesdeUso(id);
-      const dLabel = d===999?'nunca usada':d===0?'usada hoy':d===1?'usada ayer':`hace ${d} días`;
-      const div = document.createElement('div');
-      div.className = 'ia-prenda-item';
-      div.innerHTML = `
-        ${p.foto
-          ? `<img class="ia-thumb" src="${p.foto}" alt="${safe(p.nombre)}" />`
-          : `<div class="ia-emoji">${CAT_EMOJI[p.categoria]||'👕'}</div>`}
-        <div class="ia-prenda-info">
-          <div class="ia-prenda-nombre">${safe(p.nombre)}</div>
-          <div class="ia-prenda-meta">${safe(p.color||CAT_LABEL[p.categoria]||'')} · ${dLabel}</div>
-        </div>`;
-      cont.appendChild(div);
-    });
-
-    // Razon de la IA
-    el('ia-razon').textContent = parsed.razon || '';
-
-    // Alerta de stock si la IA la detecta
-    if(parsed.alerta && parsed.alerta!=='null') {
-      el('ia-alerta').textContent = '⚠️ ' + parsed.alerta;
-      el('ia-alerta').removeAttribute('hidden');
-    } else {
-      el('ia-alerta').setAttribute('hidden','');
-    }
-
-    // Guardar IDs sugeridos para confirmar
-    el('btn-usar-sugerencia').dataset.ids = JSON.stringify(idsValidos);
-
-  } catch(err) {
-    console.error('IA error:', err);
-    el('ia-loading').setAttribute('hidden','');
-    el('ia-error').removeAttribute('hidden');
+  // Elegir mejor top
+  if (tops.length) {
+    const t = tops[0];
+    seleccion.push(t.id);
+    const d = diasDesdeUso(t.id);
+    razones.push(d === 999 ? `${t.nombre} nunca ha sido usada` : d >= 3 ? `${t.nombre} lleva ${d} días guardada` : `${t.nombre} es la mejor opción disponible`);
+  } else {
+    alertas.push('⚠️ No tienes franelas/tops limpias. Hora de lavar.');
   }
+
+  // Elegir mejor bottom
+  if (bottoms.length) {
+    const b = bottoms[0];
+    seleccion.push(b.id);
+    const d = diasDesdeUso(b.id);
+    razones.push(d === 999 ? `${b.nombre} nunca ha sido usada` : d >= 3 ? `${b.nombre} lleva ${d} días guardada` : `${b.nombre} es el mejor short/pantalon disponible`);
+  } else {
+    alertas.push('⚠️ No tienes shorts/pantalones limpios. Revisa lavandería.');
+  }
+
+  // Si no hay ni tops ni bottoms, tomar lo que haya
+  if (!seleccion.length && otros.length) {
+    seleccion.push(otros[0].id);
+    razones.push(`${otros[0].nombre} es lo que está disponible`);
+  }
+
+  // Alertas de stock bajo (quedan 1 o menos limpias en una categoria con stock)
+  const gruposTops    = state.prendas.filter(p => TOPS.includes(p.categoria));
+  const gruposBottoms = state.prendas.filter(p => BOTTOMS.includes(p.categoria));
+  const limTops    = gruposTops.filter(p => p.estado === 'limpia').length;
+  const limBottoms = gruposBottoms.filter(p => p.estado === 'limpia').length;
+
+  if (gruposTops.length > 1 && limTops <= 1)
+    alertas.push(`⚠️ Solo te queda ${limTops} franela limpia. Lava pronto.`);
+  if (gruposBottoms.length > 1 && limBottoms <= 1)
+    alertas.push(`⚠️ Solo te queda ${limBottoms} short/pantalon limpio. Lava pronto.`);
+
+  // Renderizar prendas seleccionadas
+  const cont = el('ia-prendas');
+  cont.innerHTML = '';
+  seleccion.forEach(id => {
+    const p = state.prendas.find(x => x.id === id);
+    if (!p) return;
+    const d = diasDesdeUso(id);
+    const dLabel = d===999 ? 'nunca usada' : d===0 ? 'usada hoy' : d===1 ? 'usada ayer' : `hace ${d} días`;
+    const div = document.createElement('div');
+    div.className = 'ia-prenda-item';
+    div.innerHTML = `
+      ${p.foto
+        ? `<img class="ia-thumb" src="${p.foto}" alt="${safe(p.nombre)}" />`
+        : `<div class="ia-emoji">${CAT_EMOJI[p.categoria]||'👕'}</div>`}
+      <div class="ia-prenda-info">
+        <div class="ia-prenda-nombre">${safe(p.nombre)}</div>
+        <div class="ia-prenda-meta">${safe(p.color || CAT_LABEL[p.categoria] || '')} · ${dLabel}</div>
+      </div>`;
+    cont.appendChild(div);
+  });
+
+  // Razon en texto natural
+  el('ia-razon').textContent = razones.join('. ') + '.';
+
+  // Alertas
+  const alertaEl = el('ia-alerta');
+  if (alertas.length) {
+    alertaEl.innerHTML = alertas.join('<br>');
+    alertaEl.removeAttribute('hidden');
+  } else {
+    alertaEl.setAttribute('hidden','');
+  }
+
+  el('btn-usar-sugerencia').dataset.ids = JSON.stringify(seleccion);
 }
 
 function usarSugerenciaIA() {
